@@ -1,6 +1,8 @@
 ﻿Imports System.Linq.Expressions
 Imports System.IO
 Imports System.Globalization
+Imports System.Configuration
+
 'Imports System.Windows.
 Public Class Form1
 
@@ -9,6 +11,15 @@ Public Class Form1
     Dim TTZ As New Camera(w - 1, h - 1)
     Dim it As Integer = 0
     Dim sw As New Stopwatch
+    Dim SetT As Double
+    Dim t_heater As Double
+    Dim t_heater_max As Double = 200
+    Dim t_heater_min As Double = -200
+    Dim P, I, D As Double
+    Dim SetItem As Camera.V
+    Dim Type_V(,) As Integer
+    Dim WR As Integer
+    Dim HR As Integer
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
 
@@ -37,24 +48,65 @@ Public Class Form1
     Private Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
 
         Static first As Boolean = True
-
+        Dim err As Double
 
 
         If first Then
 
-            initial()
-            PictureBox1.Image = TTZ.CreatePictureSkin
             it = 0
             'sw.Start()
 
+            SetT = 100
+            t_heater = 25
+
+
+            TTZ.T_Heater = t_heater
+
+
             first = False
+
         End If
 
         it += 1
 
         TTZ.CalculationT()
+        PictureBox1.Image = TTZ.CreatePictureSkin
         PictureBox1.Image = TTZ.CreatePicture()
 
+
+        err = SetT - TTZ.Average_T
+
+        Dim dt_heater As Double
+
+        dt_heater = pid(it, err, TTZ.Delta_T_Max)
+        'If dt_heater > 10 Then dt_heater = 10
+
+        t_heater += dt_heater
+
+        If t_heater > t_heater_max Then t_heater = t_heater_max
+        If t_heater < t_heater_min Then t_heater = t_heater_min
+
+        TTZ.T_Heater = t_heater
+
+
+
+        Chart1.Series("Temperature").Points.AddXY(it, TTZ.Average_T)
+        Chart1.Series("THeater").Points.AddXY(it, t_heater)
+
+        If it > 100 And Int(it / 2) = it / 2 Then
+            Chart1.Series("Temperature").Points.RemoveAt(0)
+            Chart1.Series("Temperature").Points.RemoveAt(0)
+
+            Chart1.Series("THeater").Points.RemoveAt(0)
+            Chart1.Series("THeater").Points.RemoveAt(0)
+
+            Chart2.Series("P").Points.RemoveAt(0)
+            Chart2.Series("P").Points.RemoveAt(0)
+
+            Chart2.Series("I").Points.RemoveAt(0)
+            Chart2.Series("I").Points.RemoveAt(0)
+
+        End If
 
         Me.Text = "it = " & it & " dT_Max = " & TTZ.Delta_T_Max
 
@@ -63,15 +115,80 @@ Public Class Form1
         '    MsgBox(1000 * 1000 / sw.ElapsedMilliseconds)
         'End If
 
+        'Chart1.
+
     End Sub
+
+    Function pid(it As Integer, Err As Double, dt As Double)
+        Dim kp As Double = 1
+        Dim ki As Double = 0
+
+        P = Err
+        I += Err * dt
+
+        Chart2.Series("P").Points.AddXY(it, P * kp)
+        Chart2.Series("I").Points.AddXY(it, I * ki)
+
+        Return P * kp + I * ki
+    End Function
 
     Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
         Timer1.Enabled = Not Timer1.Enabled
     End Sub
 
+    Private Sub PictureBox2_MouseClick(sender As Object, e As MouseEventArgs) Handles PictureBox2.MouseClick
+        Dim w, h As Integer
+
+        w = Int(e.X / WR)
+        h = Int(e.Y / HR)
+
+        Type_V(w, h) = SetItem
+
+        initial()
+
+    End Sub
+
+    Private Sub Wall_CheckedChanged(sender As Object, e As EventArgs) Handles Wall.CheckedChanged
+        SetItem = Camera.V.Wall
+    End Sub
+
+    Private Sub Space_CheckedChanged(sender As Object, e As EventArgs) Handles Space.CheckedChanged
+        SetItem = Camera.V.Space
+    End Sub
+
+    Private Sub Heater_CheckedChanged(sender As Object, e As EventArgs) Handles Heater.CheckedChanged
+        SetItem = Camera.V.Heater
+    End Sub
+
     Sub initial()
 
-        Dim Type_V(,) As Integer = {{Camera.V.Wall, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Wall},
+
+        TTZ.Type_S = Type_V
+
+        TTZ.T_wall = 25
+        TTZ.T_Space = 30
+        TTZ.T_Heater = 100
+
+        TTZ.C_Wall = 2000
+        TTZ.C_Space = 5
+        TTZ.C_Heater = 10
+
+
+        PictureBox2.Image = TTZ.CreatePictureSkin
+        PictureBox2.Image = TTZ.CreatePicture
+
+
+    End Sub
+
+    Sub New()
+
+        ' Этот вызов является обязательным для конструктора.
+        InitializeComponent()
+
+        ' Добавить код инициализации после вызова InitializeComponent().
+
+
+        Type_V = {{Camera.V.Wall, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Wall},
             {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
             {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
             {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
@@ -92,17 +209,14 @@ Public Class Form1
             Next
         Next
 
-        TTZ.Type_S = Type_V
 
-        TTZ.T_wall = 25
-        TTZ.T_Space = -100
-        TTZ.T_Heater = 100
+        initial()
 
-        TTZ.C_Wall = 2000
-        TTZ.C_Space = 10
-        TTZ.C_Heater = 20
 
+        WR = 792 / w
+        HR = 792 / h
     End Sub
+
 
 End Class
 
@@ -316,7 +430,7 @@ Public Class Camera
                 Screen.FillRectangle(brush, (i) * WR + 1, (j) * HR + 1, WR - 2, HR - 2)
 
                 Dim ts As Double = Int(T(i, j) * 10) / 10
-                Screen.DrawString(ts, DrawFont, BrushFont, (i) * WR + WR * 0.25, (j) * HR + HR * 0.25)
+                Screen.DrawString(ts, DrawFont, BrushFont, (i) * WR + WR * 0.1, (j) * HR + HR * 0.25)
 
             Next
         Next
@@ -352,7 +466,7 @@ Public Class Camera
                 Screen.FillRectangle(BrushFont, (i) * WR, (j) * HR, WR, HR)
                 Screen.FillRectangle(brush, (i) * WR + 1, (j) * HR + 1, WR - 2, HR - 2)
                 Dim ts As Double = Int(T(i, j) * 10) / 10
-                Screen.DrawString(ts, DrawFont, BrushFont, (i) * WR + WR * 0.25, (j) * HR + HR * 0.25)
+                Screen.DrawString(ts, DrawFont, BrushFont, (i) * WR + WR * 0.1, (j) * HR + HR * 0.25)
             Next
         Next
 
@@ -362,7 +476,7 @@ Public Class Camera
                 Screen.FillRectangle(BrushFont, (i) * WR, (j) * HR, WR, HR)
                 Screen.FillRectangle(brush, (i) * WR + 1, (j) * HR + 1, WR - 2, HR - 2)
                 Dim ts As Double = Int(T(i, j) * 10) / 10
-                Screen.DrawString(ts, DrawFont, BrushFont, (i) * WR + WR * 0.25, (j) * HR + HR * 0.25)
+                Screen.DrawString(ts, DrawFont, BrushFont, (i) * WR + WR * 0.1, (j) * HR + HR * 0.25)
             Next
         Next
 
