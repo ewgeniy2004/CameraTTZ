@@ -6,81 +6,54 @@ Imports System.Configuration
 'Imports System.Windows.
 Public Class Form1
 
-    Const w As Integer = 12
-    Const h As Integer = 12
+    Dim w As Integer = 12
+    Dim h As Integer = 12
+
     Dim TTZ As New Camera(w - 1, h - 1)
-    Dim it As Integer = 0
-    Dim sw As New Stopwatch
-    Dim SetT As Double
-    Dim t_heater As Double
-    Dim t_heater_max As Double = 200
-    Dim t_heater_min As Double = -200
-    Dim P, I, D As Double
+
+    Dim t_heater, t_wall, t_space As Double
+    Dim t_heater_max As Double = 300
+    Dim t_heater_min As Double = -300
+    Dim dt_heater_max As Double
     Dim SetItem As Camera.V
     Dim Type_V(,) As Integer
     Dim WR As Integer
     Dim HR As Integer
+    Dim pid As New PID_CL
+    Dim first_tik As Boolean = True
+    Dim it As Integer = 0
 
-    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+    Dim At As New List(Of Double)
 
-        initial()
-
-        Dim it As Integer = 0
-
-        Do
-            it += 1
-
-            TTZ.CalculationT()
-            'PictureBox1.Image = TTZ.CreatePicture()
-
-        Loop While it < 1000
-
-        'Loop While TTZ.Delta_T_Max > 0.0001
-
-        'TTZ.Write("Rez.txt")
-
-        Me.Text = it
-        PictureBox1.Image = TTZ.CreatePictureSkin
-        PictureBox1.Image = TTZ.CreatePicture()
-
-    End Sub
+    Dim stpr As Boolean = False
 
     Private Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
 
-        Static first As Boolean = True
-        Dim err As Double
 
 
-        If first Then
+
+        Dim dt_heater As Double
+
+        If first_tik Then
 
             it = 0
-            'sw.Start()
-
-            SetT = 100
-            t_heater = 25
-
-
-            TTZ.T_Heater = t_heater
-
-
-            first = False
+            first_tik = False
 
         End If
 
         it += 1
 
         TTZ.CalculationT()
-        PictureBox1.Image = TTZ.CreatePictureSkin
-        PictureBox1.Image = TTZ.CreatePicture()
+
+        If Int(it / 10) = it / 10 Then
+            PictureBox1.Image = TTZ.CreatePictureSkin
+            PictureBox1.Image = TTZ.CreatePicture()
+        End If
 
 
-        err = SetT - TTZ.Average_T
+        dt_heater = pid.Calculation(TTZ.Average_T, TTZ.Set_T)
 
-        Dim dt_heater As Double
-
-        dt_heater = pid(it, err, TTZ.Delta_T_Max)
-        'If dt_heater > 10 Then dt_heater = 10
-
+        If Math.Abs(dt_heater) > dt_heater_max And dt_heater_max > 0 Then dt_heater = dt_heater_max * Math.Abs(dt_heater) / dt_heater
         t_heater += dt_heater
 
         If t_heater > t_heater_max Then t_heater = t_heater_max
@@ -91,46 +64,29 @@ Public Class Form1
 
 
         Chart1.Series("Temperature").Points.AddXY(it, TTZ.Average_T)
-        Chart1.Series("THeater").Points.AddXY(it, t_heater)
+        Chart3.Series("THeater").Points.AddXY(it, t_heater)
 
-        If it > 100 And Int(it / 2) = it / 2 Then
+        At.Add(TTZ.Average_T)
+        If it > 300 Then At.RemoveAt(0)
+
+        If it > 300 And Int(it / 2) = it / 2 Then
             Chart1.Series("Temperature").Points.RemoveAt(0)
             Chart1.Series("Temperature").Points.RemoveAt(0)
 
-            Chart1.Series("THeater").Points.RemoveAt(0)
-            Chart1.Series("THeater").Points.RemoveAt(0)
+            Chart3.Series("THeater").Points.RemoveAt(0)
+            Chart3.Series("THeater").Points.RemoveAt(0)
 
-            Chart2.Series("P").Points.RemoveAt(0)
-            Chart2.Series("P").Points.RemoveAt(0)
+            'Chart2.Series("P").Points.RemoveAt(0)
+            'Chart2.Series("P").Points.RemoveAt(0)
 
-            Chart2.Series("I").Points.RemoveAt(0)
-            Chart2.Series("I").Points.RemoveAt(0)
+            'Chart2.Series("I").Points.RemoveAt(0)
+            'Chart2.Series("I").Points.RemoveAt(0)
 
         End If
 
-        Me.Text = "it = " & it & " dT_Max = " & TTZ.Delta_T_Max
-
-        'If it = 1000 Then
-        '    sw.Stop()
-        '    MsgBox(1000 * 1000 / sw.ElapsedMilliseconds)
-        'End If
-
-        'Chart1.
+        Me.Text = "it = " & it & " dT_Max = " & TTZ.Delta_T_Max.ToString("0.0 E-00") & " T_Grad = " & TTZ.Grad_t.ToString("0.00") & " A = " & (At.Max - At.Min).ToString("0.00")
 
     End Sub
-
-    Function pid(it As Integer, Err As Double, dt As Double)
-        Dim kp As Double = 1
-        Dim ki As Double = 0
-
-        P = Err
-        I += Err * dt
-
-        Chart2.Series("P").Points.AddXY(it, P * kp)
-        Chart2.Series("I").Points.AddXY(it, I * ki)
-
-        Return P * kp + I * ki
-    End Function
 
     Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
         Timer1.Enabled = Not Timer1.Enabled
@@ -142,9 +98,15 @@ Public Class Form1
         w = Int(e.X / WR)
         h = Int(e.Y / HR)
 
-        Type_V(w, h) = SetItem
+        If (w = 0 Or h = 0) And SetItem = Camera.V.Space Then
+            MsgBox("it can only be a Wall or a Heater")
+        Else
+            Type_V(w, h) = SetItem
+            Initial()
+            Write_to_file(Type_V)
+        End If
 
-        initial()
+
 
     End Sub
 
@@ -160,14 +122,85 @@ Public Class Form1
         SetItem = Camera.V.Heater
     End Sub
 
-    Sub initial()
+    Private Sub T_Wall_Set_ValueChanged(sender As Object, e As EventArgs) Handles T_Wall_Set.ValueChanged
+        t_wall = T_Wall_Set.Value
+        'initial()
+    End Sub
+
+    Private Sub T_Heater_Set_ValueChanged(sender As Object, e As EventArgs) Handles T_Heater_Set.ValueChanged
+        t_heater = T_Heater_Set.Value
+        'initial()
+    End Sub
+
+    Private Sub T_Space_Set_ValueChanged(sender As Object, e As EventArgs) Handles T_Space_Set.ValueChanged
+        t_space = T_Space_Set.Value
+        'initial()
+    End Sub
+
+    Private Sub Kd_Set_ValueChanged(sender As Object, e As EventArgs) Handles Kd_Set.ValueChanged
+        pid.Set_Kd = Kd_Set.Value
+        If stpr Then Write_to_file(Type_V)
+    End Sub
+
+    Private Sub T_Set_ValueChanged(sender As Object, e As EventArgs) Handles T_Set.ValueChanged
+        TTZ.Set_T = T_Set.Value
+    End Sub
+
+    Private Sub Kp_Set_ValueChanged(sender As Object, e As EventArgs) Handles Kp_Set.ValueChanged
+        pid.Set_Kp = Kp_Set.Value
+        If stpr Then Write_to_file(Type_V)
+    End Sub
+
+    Private Sub Ki_Set_ValueChanged(sender As Object, e As EventArgs) Handles Ki_Set.ValueChanged
+        pid.Set_Ki = Ki_Set.Value
+        If stpr Then Write_to_file(Type_V)
+    End Sub
+
+    Private Sub Max_dt_Heater_ValueChanged(sender As Object, e As EventArgs) Handles Max_dt_Heater.ValueChanged
+        dt_heater_max = Max_dt_Heater.Value
+        If stpr Then Write_to_file(Type_V)
+    End Sub
+
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        If Timer1.Enabled Then
+            Timer1.Stop()
+            Default_Set()
+            Initial()
+            first_tik = True
+            Timer1.Start()
+        Else
+            Default_Set()
+            Initial()
+            first_tik = True
+        End If
+
+        Chart1.Series("Temperature").Points.Clear()
+        Chart3.Series("THeater").Points.Clear()
+
+
+        PictureBox1.Image = TTZ.CreatePictureSkin
+        PictureBox1.Image = TTZ.CreatePicture()
+
+        At.Clear()
+
+    End Sub
+
+    Private Sub Default_Set()
+
+        t_wall = T_Wall_Set.Value
+        t_space = T_Space_Set.Value
+        t_heater = T_Heater_Set.Value
+
+    End Sub
+
+    Sub Initial()
 
 
         TTZ.Type_S = Type_V
 
-        TTZ.T_wall = 25
-        TTZ.T_Space = 30
-        TTZ.T_Heater = 100
+        TTZ.T_wall = t_wall
+        TTZ.T_Space = t_space
+        TTZ.T_Heater = t_heater
 
         TTZ.C_Wall = 2000
         TTZ.C_Space = 5
@@ -187,36 +220,96 @@ Public Class Form1
 
         ' Добавить код инициализации после вызова InitializeComponent().
 
+        If Not File.Exists("options.txt") Then
 
-        Type_V = {{Camera.V.Wall, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Wall},
-            {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
-            {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
-            {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
-            {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
-            {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
-            {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
-            {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
-            {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
-            {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
-            {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
-            {Camera.V.Wall, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Wall}}
+            Type_V = {{Camera.V.Wall, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Wall},
+                     {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
+                     {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
+                     {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
+                     {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
+                     {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
+                     {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
+                     {Camera.V.Heater, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Heater},
+                     {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
+                     {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
+                     {Camera.V.Wall, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Space, Camera.V.Wall},
+                     {Camera.V.Wall, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Heater, Camera.V.Wall, Camera.V.Wall, Camera.V.Wall, Camera.V.Heater, Camera.V.Wall}}
 
-        For i As Integer = 0 To w - 1
-            For j As Integer = i To h - 1
-                Dim k As Double = Type_V(i, j)
-                Type_V(i, j) = Type_V(j, i)
-                Type_V(j, i) = k
+            For i As Integer = 0 To w - 1
+                For j As Integer = i To h - 1
+                    Dim k As Double = Type_V(i, j)
+                    Type_V(i, j) = Type_V(j, i)
+                    Type_V(j, i) = k
+                Next
             Next
-        Next
+
+            Write_to_file(Type_V)
+
+        Else
+
+            Read_to_file(Type_V)
+
+        End If
 
 
-        initial()
+
+
+
+        Default_Set()
+
+        Initial()
 
 
         WR = 792 / w
         HR = 792 / h
+
+        stpr = True
+
     End Sub
 
+    Sub Write_to_file(ByRef Type_V(,) As Integer)
+
+        Dim Write As New StreamWriter("options.txt")
+
+        Write.WriteLine(w)
+        Write.WriteLine(h)
+
+        Write.WriteLine(Kp_Set.Value)
+        Write.WriteLine(Ki_Set.Value)
+        Write.WriteLine(Kd_Set.Value)
+        Write.WriteLine(Max_dt_Heater.Value)
+
+        For i As Integer = 0 To w - 1
+            For j As Integer = 0 To h - 1
+                Write.WriteLine(Type_V(i, j))
+            Next
+        Next
+
+        Write.Close()
+    End Sub
+
+    Sub Read_to_file(ByRef Type_V(,) As Integer)
+
+        Dim Read As New StreamReader("options.txt")
+
+        w = Read.ReadLine
+        h = Read.ReadLine
+
+        Kp_Set.Value = Read.ReadLine
+        Ki_Set.Value = Read.ReadLine
+        Kd_Set.Value = Read.ReadLine
+        Max_dt_Heater.Value = Read.ReadLine
+
+        ReDim Type_V(w - 1, h - 1)
+
+        For i As Integer = 0 To w - 1
+            For j As Integer = 0 To h - 1
+                Type_V(i, j) = Read.ReadLine()
+            Next
+        Next
+
+        Read.Close()
+    End Sub
 
 End Class
 
@@ -237,6 +330,7 @@ Public Class Camera
     Dim Screen As Graphics = Graphics.FromImage(Image)
     Dim WR As Integer
     Dim HR As Integer
+    Dim T_Set, T_Grad As Double
 
     Sub New(ByVal Weidght As Integer, ByVal Height As Integer)
 
@@ -367,11 +461,28 @@ Public Class Camera
         End Get
     End Property
 
+    Public Property Set_T As Double
+        Set(value As Double)
+            T_Set = value
+        End Set
+        Get
+            Return T_Set
+        End Get
+    End Property
+
+    Public ReadOnly Property Grad_t As Double
+        Get
+            Return T_Grad
+        End Get
+    End Property
+
     Sub CalculationT()
 
-        Dim new_t As Double = 0
+        Dim new_t As Double
         Dim Tt(w, h) As Double
-        Dim dt As Double = 0
+        Dim dt As Double
+        Dim t_max, t_min As Double
+        Dim f As Boolean = True
 
         DTMax = 0
 
@@ -401,9 +512,20 @@ Public Class Camera
 
         For i As Integer = 0 To w
             For j As Integer = 0 To h
-                If Type_V(i, j) = V.Space Then T(i, j) = Tt(i, j)
+                If Type_V(i, j) = V.Space Then
+                    T(i, j) = Tt(i, j)
+                    If f Then
+                        t_max = T(i, j)
+                        t_min = T(i, j)
+                        f = False
+                    End If
+                    If t_max < T(i, j) Then t_max = T(i, j)
+                    If t_min > T(i, j) Then t_min = T(i, j)
+                End If
             Next
         Next
+
+        T_Grad = t_max - t_min
 
     End Sub
 
@@ -529,6 +651,64 @@ Public Class Camera
 
 End Class
 
+Public Class PID_CL
+    Private P, I, D As Double
+    Private e As Double
+    Private Kp, Ki, Kd As Double
+
+    Public Property Set_Kp As Double
+        Set(value As Double)
+            Kp = value
+        End Set
+        Get
+            Return Kp
+        End Get
+    End Property
+
+    Public Property Set_Ki As Double
+        Set(value As Double)
+            Ki = value
+        End Set
+        Get
+            Return Ki
+        End Get
+    End Property
+
+    Public Property Set_Kd As Double
+        Set(value As Double)
+            Kd = value
+        End Set
+        Get
+            Return Kd
+        End Get
+    End Property
+
+    Public ReadOnly Property Get_P As Double
+        Get
+            Return P
+        End Get
+    End Property
+
+    Public ReadOnly Property Get_I As Double
+        Get
+            Return I
+        End Get
+    End Property
+
+    Public ReadOnly Property Get_D As Double
+        Get
+            Return D
+        End Get
+    End Property
+
+    Function Calculation(ByVal t As Double, ByVal set_t As Double) As Double
+        P = set_t - t
+        e = P
+        D = P - e
+        I += P
+        Return P * Kp + I * Ki + D * Kd
+    End Function
+End Class
 
 'For i As Integer = 1 To w - 1
 '    For j As Integer = 1 To h - 1
